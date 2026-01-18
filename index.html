@@ -28,7 +28,7 @@
             <div id="step3-tab" class="text-gray-400 font-semibold pb-2 px-2">3. สรุป</div>
         </div>
 
-        <!-- Page 1 -->
+        <!-- Page 1: เลือกห้อง -->
         <div id="page1" class="p-4 space-y-6">
             <div class="grid grid-cols-2 gap-4">
                 <div>
@@ -45,7 +45,7 @@
             <button onclick="nextPage(2)" class="w-full bg-green-600 text-white py-4 rounded-xl font-bold text-lg shadow-lg">ถัดไป</button>
         </div>
 
-        <!-- Page 2 -->
+        <!-- Page 2: อาหาร -->
         <div id="page2" class="p-4 hidden space-y-6">
             <h2 class="text-xl font-bold text-gray-800 border-l-4 border-green-600 pl-2">สั่งอาหารล่วงหน้า</h2>
             <div id="food-list" class="space-y-4"></div>
@@ -55,7 +55,7 @@
             </div>
         </div>
 
-        <!-- Page 3 -->
+        <!-- Page 3: สรุปและชำระเงิน -->
         <div id="page3" class="p-4 hidden space-y-6">
             <div class="bg-gray-50 p-4 rounded-2xl border">
                 <h3 class="font-bold border-b pb-2 mb-3">สรุปการจอง</h3>
@@ -163,7 +163,7 @@
         }
 
         async function fetchAvailability() {
-            showLoading('กำลังตรวจสอบห้องว่าง...');
+            showLoading('เช็คสถานะว่าง...');
             try {
                 const res = await fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'checkAvailability', checkIn: state.checkIn.split('-').reverse().join('/'), checkOut: state.checkOut.split('-').reverse().join('/') }) });
                 const result = await res.json();
@@ -202,7 +202,7 @@
         }
 
         function toggleRoom(id, isBooked) {
-            if (isBooked) return; // แก้ไข: ถ้าห้องเต็มจะไม่ทำงานต่อ
+            if (isBooked) return;
             const index = state.selectedRooms.findIndex(r => r.id === id);
             if (index > -1) state.selectedRooms.splice(index, 1);
             else {
@@ -243,7 +243,7 @@
         }
 
         function nextPage(n) {
-            if (n === 2 && state.selectedRooms.length === 0) return alert('เลือกห้องพักก่อนค่ะ');
+            if (n === 2 && state.selectedRooms.length === 0) return alert('กรุณาเลือกห้องพักก่อนค่ะ');
             if (n === 3) calculateSummary();
             document.querySelectorAll('[id^="page"]').forEach(p => p.classList.add('hidden'));
             document.getElementById(`page${n}`).classList.remove('hidden');
@@ -290,9 +290,9 @@
             const name = document.getElementById('cust-name').value;
             const phone = document.getElementById('cust-phone').value;
             const slip = document.getElementById('cust-slip').files[0];
-            if (!name || !phone || !slip || !document.getElementById('terms').checked) return alert('กรอกข้อมูลให้ครบและแนบสลิปด้วยค่ะ');
+            if (!name || !phone || !slip || !document.getElementById('terms').checked) return alert('ข้อมูลไม่ครบถ้วน');
             
-            showLoading('กำลังบันทึกข้อมูล...');
+            showLoading('กำลังส่งข้อมูล...');
             const reader = new FileReader();
             reader.onload = async (e) => {
                 const payload = {
@@ -304,10 +304,12 @@
                     rooms: state.selectedRooms.map(r => ({ name: r.name, pax: r.currentPax, price: r.isCampSite ? r.pricePerPerson : r.prices[r.currentPax] })),
                     foods: state.foods.filter(f => f.qty > 0).map(f => ({ name: f.name, qty: f.qty, price: f.price }))
                 };
-                const res = await fetch(API_URL, { method: 'POST', body: JSON.stringify(payload) });
-                const result = await res.json();
-                if(result.success) { alert('จองสำเร็จ! รอแอดมินยืนยันนะคะ'); liff.closeWindow(); }
-                else alert('Error: ' + result.message);
+                try {
+                    const res = await fetch(API_URL, { method: 'POST', body: JSON.stringify(payload) });
+                    const result = await res.json();
+                    if(result.success) { alert('จองสำเร็จ! รอแอดมินยืนยันนะคะ'); liff.closeWindow(); }
+                    else alert('Error: ' + result.message);
+                } catch(err) { alert('เกิดข้อผิดพลาดในการส่งข้อมูล'); }
                 hideLoading();
             };
             reader.readAsDataURL(slip);
