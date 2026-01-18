@@ -11,23 +11,26 @@
         body { font-family: 'Kanit', sans-serif; background-color: #f4f7f6; }
         .step-active { color: #10b981; border-bottom: 3px solid #10b981; }
         
-        /* สไตล์สำหรับการเลือกห้อง */
         .room-card {
             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             border-width: 2px;
-            user-select: none; /* ป้องกันการคลุมดำเวลาคลิกย้ำๆ */
+            user-select: none;
         }
-        /* เมื่อเลือกห้องแล้วจะเปลี่ยนสีพื้นหลังและสีขอบ */
         .card-selected { 
             border-color: #059669 !important; 
             background-color: #f0fdf4 !important; 
             box-shadow: 0 10px 15px -3px rgba(16, 185, 129, 0.1);
             transform: translateY(-2px);
         }
-        /* ปรับแต่งปุ่มกดให้ชัดเจนขึ้น */
-        .pax-btn {
-            transition: background-color 0.2s;
+        /* สไตล์สำหรับห้องที่เต็ม */
+        .card-full {
+            background-color: #f3f4f6 !important;
+            border-color: #d1d5db !important;
+            opacity: 0.7;
+            cursor: not-allowed !important;
+            filter: grayscale(1);
         }
+        .pax-btn { transition: background-color 0.2s; }
     </style>
 </head>
 <body class="pb-20">
@@ -84,7 +87,6 @@
                 <h3 class="font-bold text-lg border-b pb-2 mb-3 text-green-800">สรุปรายการจอง</h3>
                 <div id="summary-content" class="text-sm space-y-2"></div>
                 
-                <!-- Discount Section -->
                 <div class="mt-4 pt-3 border-t">
                     <label class="text-xs font-bold text-gray-500 uppercase">โค้ดส่วนลด</label>
                     <div class="flex gap-2 mt-1">
@@ -153,7 +155,7 @@
     </div>
 
     <script>
-        const API_URL = 'https://script.google.com/macros/s/AKfycbwCfEmFkQ5bjats998463XFT2s6tvM1bqJFvx8rOJiKs4tlvHxXwLXRQeFGPYPkO9CNSw/exec';
+        const API_URL = 'https://script.google.com/macros/s/AKfycbwCfEmFkQ5bjats998463XFT2s6tvM1bqJFvx8rOJiKs4tlvHxXwLXRQeFGPYPkO9CNSw/exec'; // แทนที่ด้วย Web App URL ของคุณ
         const LIFF_ID = '2008803474-hRJaVbm7';
         
         let state = {
@@ -168,6 +170,7 @@
                 { id: 7, name: 'เช่าเต็นท์สนาม K2', minPax: 1, maxPax: 2, basePax: 1, prices: { 1: 700, 2: 700 } },
                 { id: 8, name: 'ลานกางเต็นท์', minPax: 1, maxPax: 20, basePax: 1, isCampSite: true, pricePerPerson: 150 }
             ],
+            bookedRoomNames: [], // รายชื่อห้องที่ถูกจองไปแล้วในวันที่เลือก
             foods: [
                 { id: 1, name: 'ชุดหมูกระทะลุงดำ', price: 390, qty: 0 },
                 { id: 2, name: 'ชุดไก่กระทะลุงดำ', price: 390, qty: 0 },
@@ -194,8 +197,8 @@
             } catch (err) { console.error('LIFF Init Error', err); }
         }
 
-        window.onload = () => {
-            initLIFF();
+        window.onload = async () => {
+            await initLIFF();
             const tomorrow = new Date();
             tomorrow.setDate(tomorrow.getDate() + 1);
             const nextDay = new Date(tomorrow);
@@ -204,19 +207,19 @@
             document.getElementById('checkIn').value = tomorrow.toISOString().split('T')[0];
             document.getElementById('checkOut').value = nextDay.toISOString().split('T')[0];
             
-            updateDates();
-            renderRooms();
+            await updateDates(); 
             renderFoods();
             
             document.getElementById('checkIn').addEventListener('change', updateDates);
             document.getElementById('checkOut').addEventListener('change', updateDates);
         };
 
-        function updateDates() {
+        async function updateDates() {
             state.checkIn = document.getElementById('checkIn').value;
             state.checkOut = document.getElementById('checkOut').value;
             const cin = new Date(state.checkIn);
             const cout = new Date(state.checkOut);
+            
             if (cout <= cin) {
                 cout.setDate(cin.getDate() + 1);
                 document.getElementById('checkOut').value = cout.toISOString().split('T')[0];
@@ -224,23 +227,65 @@
             }
             state.nights = Math.ceil((cout - cin) / (1000 * 60 * 60 * 24));
             document.getElementById('night-count').innerText = `จำนวน ${state.nights} คืน`;
+            
+            state.selectedRooms = []; // ล้างห้องที่เลือกเดิมเมื่อเปลี่ยนวันที่
+            await fetchAvailability();
+        }
+
+        // ฟังก์ชันดึงข้อมูลว่าห้องไหนเต็มบ้าง
+        async function fetchAvailability() {
+            showLoading('กำลังตรวจสอบสถานะห้องพัก...');
+            try {
+                const res = await fetch(API_URL, {
+                    method: 'POST',
+                    body: JSON.stringify({ 
+                        action: 'checkAvailability', 
+                        checkIn: state.checkIn.split('-').reverse().join('/'), 
+                        checkOut: state.checkOut.split('-').reverse().join('/') 
+                    })
+                });
+                const result = await res.json();
+                if (result.success) {
+                    // รวมชื่อห้องที่ถูกจองทั้งหมดในช่วงวันนั้น
+                    state.bookedRoomNames = [];
+                    Object.values(result.bookedData).forEach(list => {
+                        list.forEach(name => {
+                            if (!state.bookedRoomNames.includes(name)) state.bookedRoomNames.push(name);
+                        });
+                    });
+                }
+            } catch (e) {
+                console.error("Fetch Error:", e);
+            } finally {
+                renderRooms();
+                hideLoading();
+            }
         }
 
         function renderRooms() {
             const container = document.getElementById('room-list');
             container.innerHTML = state.rooms.map(room => {
+                const isBooked = state.bookedRoomNames.includes(room.name);
                 const isSelected = state.selectedRooms.some(r => r.id === room.id);
-                const selectedClass = isSelected ? 'card-selected' : '';
+                
+                let cardClass = "room-card bg-white border-2 border-gray-100 rounded-2xl p-5 shadow-sm cursor-pointer ";
+                if (isBooked) {
+                    cardClass += "card-full";
+                } else if (isSelected) {
+                    cardClass += "card-selected";
+                } else {
+                    cardClass += "hover:border-green-200";
+                }
                 
                 return `
                 <div id="room-card-${room.id}" 
-                     class="room-card bg-white border-2 border-gray-100 rounded-2xl p-5 shadow-sm cursor-pointer hover:border-green-200 ${selectedClass}" 
-                     onclick="toggleRoom(${room.id})">
+                     class="${cardClass}" 
+                     onclick="${isBooked ? '' : `toggleRoom(${room.id})`}">
                     
-                    <!-- ส่วนหัวของการ์ด: ชื่อและราคา -->
                     <div class="flex justify-between items-start mb-4">
                         <div class="pr-2">
                             <h3 class="font-bold text-lg text-gray-800 leading-tight">${room.name}</h3>
+                            ${isBooked ? '<span class="text-red-600 font-bold text-xs uppercase">จองเต็มแล้ว</span>' : ''}
                         </div>
                         <div class="text-right">
                             <span class="text-green-600 font-bold block">${room.isCampSite ? '150.- / คน' : 'เริ่ม ' + room.prices[room.minPax] + '.-'}</span>
@@ -248,15 +293,16 @@
                         </div>
                     </div>
 
-                    <!-- ส่วนท้ายของการ์ด: ปรับจำนวนคน -->
                     <div class="flex items-center justify-between mt-auto">
                         <span class="text-xs text-gray-500 font-medium bg-gray-100 px-2 py-1 rounded">ผู้เข้าพัก ${room.minPax}-${room.maxPax} ท่าน</span>
                         
+                        ${isBooked ? '' : `
                         <div class="flex items-center gap-2 bg-white rounded-full p-1 border shadow-inner" onclick="event.stopPropagation()">
                             <button onclick="changePax(${room.id}, -1)" class="pax-btn w-8 h-8 rounded-full bg-gray-50 flex items-center justify-center font-bold hover:bg-gray-200 active:scale-90">-</button>
                             <span id="pax-${room.id}" class="w-6 text-center font-bold text-green-800">${room.basePax}</span>
                             <button onclick="changePax(${room.id}, 1)" class="pax-btn w-8 h-8 rounded-full bg-gray-50 flex items-center justify-center font-bold hover:bg-gray-200 active:scale-90">+</button>
                         </div>
+                        `}
                     </div>
                 </div>
             `}).join('');
@@ -264,17 +310,14 @@
 
         function toggleRoom(id) {
             const index = state.selectedRooms.findIndex(r => r.id === id);
-            const card = document.getElementById(`room-card-${id}`);
-            
             if (index > -1) {
                 state.selectedRooms.splice(index, 1);
-                card.classList.remove('card-selected');
             } else {
                 const room = state.rooms.find(r => r.id === id);
                 const pax = parseInt(document.getElementById(`pax-${id}`).innerText);
                 state.selectedRooms.push({...room, currentPax: pax});
-                card.classList.add('card-selected');
             }
+            renderRooms();
         }
 
         function changePax(id, delta) {
@@ -398,8 +441,7 @@
             }
 
             const netRoomTotal = Math.max(0, roomTotal - discountAmount);
-            const depositPercent = 0.5; 
-            const deposit = Math.ceil((netRoomTotal * depositPercent) + foodTotal);
+            const deposit = Math.ceil((netRoomTotal * 0.5) + foodTotal);
             
             document.getElementById('summary-content').innerHTML = html || '<p class="text-center py-2 text-gray-400 italic">ยังไม่ได้เลือกรายการ</p>';
             document.getElementById('summary-room-total').innerText = roomTotal.toLocaleString() + '.-';
@@ -450,11 +492,11 @@
                     checkIn: state.checkIn.split('-').reverse().join('/'),
                     checkOut: state.checkOut.split('-').reverse().join('/'),
                     nights: state.nights,
-                    totalPrice: 0, 
-                    deposit: 0, 
+                    discountCode: state.discount.code,
+                    discountType: state.discount.type, // ส่งประเภทส่วนลด
+                    discountValue: state.discount.value, // ส่งค่าส่วนลด
                     slipBase64: base64,
                     slipType: slip.type,
-                    discountCode: state.discount.code,
                     rooms: state.selectedRooms.map(r => ({ name: r.name, pax: r.currentPax, price: r.isCampSite ? r.pricePerPerson : r.prices[r.currentPax] })),
                     foods: state.foods.filter(f => f.qty > 0).map(f => ({ name: f.name, qty: f.qty, price: f.price }))
                 };
@@ -463,13 +505,13 @@
                     const res = await fetch(API_URL, { method: 'POST', body: JSON.stringify(payload) });
                     const result = await res.json();
                     if (result.success) {
-                        alert('จองสำเร็จ! ขอบคุณที่ไว้วางใจขนำลุงดำแคมป์ปิ้ง');
+                        alert('จองสำเร็จ! กรุณารอแอดมินตรวจสอบข้อมูลครับ');
                         liff.closeWindow();
                     } else {
-                        alert('เกิดข้อผิดพลาดจากเซิร์ฟเวอร์: ' + result.message);
+                        alert('เกิดข้อผิดพลาด: ' + result.message);
                     }
                 } catch (err) {
-                    alert('ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้ กรุณาลองใหม่อีกครั้ง');
+                    alert('ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้');
                 } finally {
                     hideLoading();
                 }
