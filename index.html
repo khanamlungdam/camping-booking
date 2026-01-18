@@ -11,23 +11,17 @@
         body { font-family: 'Kanit', sans-serif; background-color: #f4f7f6; }
         .step-active { color: #10b981; border-bottom: 3px solid #10b981; }
         
-        /* สไตล์สำหรับการเลือกห้องแบบทุกห้อง */
+        /* สไตล์สำหรับการเลือกห้อง */
         .room-card {
             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            border-width: 2px;
         }
+        /* เมื่อเลือกห้องแล้วจะเปลี่ยนสีพื้นหลังและสีขอบ */
         .card-selected { 
             border-color: #059669 !important; 
-            background-color: #ecfdf5 !important; 
-            box-shadow: 0 10px 15px -3px rgba(16, 185, 129, 0.1), 0 4px 6px -2px rgba(16, 185, 129, 0.05);
+            background-color: #f0fdf4 !important; 
+            box-shadow: 0 10px 15px -3px rgba(16, 185, 129, 0.1);
             transform: translateY(-2px);
-        }
-        .checkmark { 
-            display: none; 
-            transition: transform 0.2s ease;
-        }
-        .card-selected .checkmark { 
-            display: flex;
-            transform: scale(1.1);
         }
     </style>
 </head>
@@ -230,19 +224,11 @@
         function renderRooms() {
             const container = document.getElementById('room-list');
             container.innerHTML = state.rooms.map(room => {
-                // เช็คว่าห้องนี้ถูกเลือกอยู่หรือไม่
                 const isSelected = state.selectedRooms.some(r => r.id === room.id);
                 const selectedClass = isSelected ? 'card-selected' : '';
                 
                 return `
-                <div id="room-card-${room.id}" class="room-card relative bg-white border-2 border-gray-100 rounded-2xl p-4 shadow-sm cursor-pointer hover:border-green-300 ${selectedClass}" onclick="toggleRoom(${room.id})">
-                    <!-- Checkmark Icon -->
-                    <div class="checkmark absolute -top-2 -right-2 bg-green-600 text-white rounded-full p-1 shadow-md flex items-center justify-center">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                            <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
-                        </svg>
-                    </div>
-                    
+                <div id="room-card-${room.id}" class="room-card bg-white border-2 border-gray-100 rounded-2xl p-4 shadow-sm cursor-pointer hover:border-green-200 ${selectedClass}" onclick="toggleRoom(${room.id})">
                     <div class="flex justify-between items-center">
                         <h3 class="font-bold text-lg text-gray-800">${room.name}</h3>
                         <span class="text-green-600 font-bold">${room.isCampSite ? '150.- / คน' : 'เริ่ม ' + room.prices[room.minPax] + '.-'}</span>
@@ -253,7 +239,7 @@
                             <span id="pax-${room.id}" class="w-6 text-center font-bold text-green-800">${room.basePax}</span>
                             <button onclick="changePax(${room.id}, 1)" class="w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center font-bold hover:bg-gray-100 active:bg-gray-200">+</button>
                         </div>
-                        <span class="text-xs text-gray-500 font-medium italic">ผู้เข้าพัก (${room.minPax}-${room.maxPax} ท่าน)</span>
+                        <span class="text-xs text-gray-500 font-medium">ผู้เข้าพัก (${room.minPax}-${room.maxPax} ท่าน)</span>
                     </div>
                 </div>
             `}).join('');
@@ -281,7 +267,6 @@
             
             if (val >= room.minPax && val <= room.maxPax) {
                 span.innerText = val;
-                // อัปเดตข้อมูลในห้องที่เลือกไว้แล้วด้วย
                 const selectedIndex = state.selectedRooms.findIndex(r => r.id === id);
                 if (selectedIndex > -1) {
                     state.selectedRooms[selectedIndex].currentPax = val;
@@ -317,9 +302,7 @@
                 alert('กรุณาเลือกอย่างน้อย 1 ห้อง');
                 return;
             }
-            if (n === 3) {
-                calculateSummary();
-            }
+            if (n === 3) calculateSummary();
             
             document.querySelectorAll('[id^="page"]').forEach(p => p.classList.add('hidden'));
             document.getElementById(`page${n}`).classList.remove('hidden');
@@ -390,7 +373,6 @@
                 }
             });
 
-            // Calculate Discount
             let discountAmount = 0;
             if (state.discount.type === 'fixed') {
                 discountAmount = state.discount.value;
@@ -399,7 +381,7 @@
             }
 
             const netRoomTotal = Math.max(0, roomTotal - discountAmount);
-            const depositPercent = 0.5; // มัดจำ 50%
+            const depositPercent = 0.5; 
             const deposit = Math.ceil((netRoomTotal * depositPercent) + foodTotal);
             
             document.getElementById('summary-content').innerHTML = html || '<p class="text-center py-2 text-gray-400 italic">ยังไม่ได้เลือกรายการ</p>';
