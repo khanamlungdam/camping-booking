@@ -10,7 +10,15 @@
     <style>
         body { font-family: 'Kanit', sans-serif; background-color: #f4f7f6; }
         .step-active { color: #10b981; border-bottom: 3px solid #10b981; }
-        .card-selected { border: 2px solid #10b981; background-color: #ecfdf5; }
+        /* สไตล์สำหรับการเลือกห้อง */
+        .card-selected { 
+            border-color: #059669 !important; 
+            background-color: #ecfdf5 !important; 
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            transform: translateY(-2px);
+        }
+        .checkmark { display: none; }
+        .card-selected .checkmark { display: block; }
     </style>
 </head>
 <body class="pb-20">
@@ -67,11 +75,34 @@
                 <h3 class="font-bold text-lg border-b pb-2 mb-3">สรุปรายการจอง</h3>
                 <div id="summary-content" class="text-sm space-y-2"></div>
                 
-                <div class="mt-4 pt-3 border-t space-y-1">
-                    <div class="flex justify-between font-bold text-lg text-green-700">
+                <!-- Discount Section -->
+                <div class="mt-4 pt-3 border-t">
+                    <label class="text-xs font-bold text-gray-500 uppercase">โค้ดส่วนลด</label>
+                    <div class="flex gap-2 mt-1">
+                        <input type="text" id="discount-code" placeholder="กรอกโค้ดที่นี่" class="flex-1 border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-green-500">
+                        <button onclick="applyDiscount()" class="bg-gray-800 text-white px-4 py-2 rounded-lg text-sm font-bold">ใช้โค้ด</button>
+                    </div>
+                    <p id="discount-msg" class="text-xs mt-1 hidden"></p>
+                </div>
+
+                <div class="mt-4 pt-3 border-t space-y-1 text-sm">
+                    <div class="flex justify-between">
+                        <span>ค่าห้องพักรวม</span>
+                        <span id="summary-room-total">0.-</span>
+                    </div>
+                    <div id="discount-row" class="flex justify-between text-red-600 hidden">
+                        <span>ส่วนลดค่าห้อง</span>
+                        <span id="summary-discount">-0.-</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span>ค่าอาหารรวม</span>
+                        <span id="summary-food-total">0.-</span>
+                    </div>
+                    <div class="flex justify-between font-bold text-lg text-green-700 pt-2 border-t mt-2">
                         <span>ยอดมัดจำที่ต้องจ่าย</span>
                         <span id="summary-deposit">0 บาท</span>
                     </div>
+                    <p class="text-[10px] text-gray-400 text-right">* มัดจำ 50% ของค่าห้อง + ค่าอาหารเต็มจำนวน</p>
                 </div>
             </div>
 
@@ -105,7 +136,7 @@
     <div id="loading" class="fixed inset-0 bg-black/50 hidden flex items-center justify-center z-50">
         <div class="bg-white p-6 rounded-2xl text-center">
             <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto mb-4"></div>
-            <p>กำลังดำเนินการ...</p>
+            <p id="loading-text">กำลังดำเนินการ...</p>
         </div>
     </div>
 
@@ -136,17 +167,19 @@
             checkIn: '',
             checkOut: '',
             nights: 1,
-            bookedData: {}
+            discount: { code: '', type: 'none', value: 0 }
         };
 
         async function initLIFF() {
-            await liff.init({ liffId: LIFF_ID });
-            if (!liff.isLoggedIn()) {
-                liff.login();
-            } else {
-                const profile = await liff.getProfile();
-                state.user = profile;
-            }
+            try {
+                await liff.init({ liffId: LIFF_ID });
+                if (!liff.isLoggedIn()) {
+                    liff.login();
+                } else {
+                    const profile = await liff.getProfile();
+                    state.user = profile;
+                }
+            } catch (err) { console.error('LIFF Init Error', err); }
         }
 
         window.onload = () => {
@@ -170,41 +203,39 @@
         function updateDates() {
             state.checkIn = document.getElementById('checkIn').value;
             state.checkOut = document.getElementById('checkOut').value;
-            
             const cin = new Date(state.checkIn);
             const cout = new Date(state.checkOut);
-            
             if (cout <= cin) {
                 cout.setDate(cin.getDate() + 1);
                 document.getElementById('checkOut').value = cout.toISOString().split('T')[0];
                 state.checkOut = document.getElementById('checkOut').value;
             }
-            
             state.nights = Math.ceil((cout - cin) / (1000 * 60 * 60 * 24));
             document.getElementById('night-count').innerText = `จำนวน ${state.nights} คืน`;
-            checkAvailability();
-        }
-
-        async function checkAvailability() {
-            // เรียก API ไปเช็คห้องที่จองแล้วในช่วงวันที่เลือก
-            // กรองสถานะห้องว่างใน UI
         }
 
         function renderRooms() {
             const container = document.getElementById('room-list');
             container.innerHTML = state.rooms.map(room => `
-                <div id="room-card-${room.id}" class="bg-white border-2 rounded-2xl p-4 shadow-sm transition" onclick="toggleRoom(${room.id})">
+                <div id="room-card-${room.id}" class="relative bg-white border-2 border-gray-100 rounded-2xl p-4 shadow-sm transition-all duration-300 cursor-pointer hover:border-green-300" onclick="toggleRoom(${room.id})">
+                    <!-- Checkmark Icon -->
+                    <div class="checkmark absolute -top-2 -right-2 bg-green-600 text-white rounded-full p-1 shadow-md">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+                        </svg>
+                    </div>
+                    
                     <div class="flex justify-between items-center">
-                        <h3 class="font-bold text-lg">${room.name}</h3>
+                        <h3 class="font-bold text-lg text-gray-800">${room.name}</h3>
                         <span class="text-green-600 font-bold">${room.isCampSite ? '150.- / คน' : 'เริ่ม ' + room.prices[room.minPax] + '.-'}</span>
                     </div>
                     <div class="flex items-center mt-3 gap-4" onclick="event.stopPropagation()">
-                        <div class="flex items-center gap-2">
-                            <button onclick="changePax(${room.id}, -1)" class="w-8 h-8 rounded-full border bg-gray-50">-</button>
-                            <span id="pax-${room.id}" class="w-6 text-center font-bold">${room.basePax}</span>
-                            <button onclick="changePax(${room.id}, 1)" class="w-8 h-8 rounded-full border bg-gray-50">+</button>
+                        <div class="flex items-center gap-2 bg-gray-50 rounded-full p-1 border">
+                            <button onclick="changePax(${room.id}, -1)" class="w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center font-bold hover:bg-gray-100">-</button>
+                            <span id="pax-${room.id}" class="w-6 text-center font-bold text-green-800">${room.basePax}</span>
+                            <button onclick="changePax(${room.id}, 1)" class="w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center font-bold hover:bg-gray-100">+</button>
                         </div>
-                        <span class="text-xs text-gray-500">ผู้เข้าพัก (${room.minPax}-${room.maxPax} ท่าน)</span>
+                        <span class="text-xs text-gray-500 font-medium">ผู้เข้าพัก (${room.minPax}-${room.maxPax} ท่าน)</span>
                     </div>
                 </div>
             `).join('');
@@ -212,14 +243,15 @@
 
         function toggleRoom(id) {
             const index = state.selectedRooms.findIndex(r => r.id === id);
+            const card = document.getElementById(`room-card-${id}`);
             if (index > -1) {
                 state.selectedRooms.splice(index, 1);
-                document.getElementById(`room-card-${id}`).classList.remove('card-selected');
+                card.classList.remove('card-selected');
             } else {
                 const room = state.rooms.find(r => r.id === id);
                 const pax = parseInt(document.getElementById(`pax-${id}`).innerText);
                 state.selectedRooms.push({...room, currentPax: pax});
-                document.getElementById(`room-card-${id}`).classList.add('card-selected');
+                card.classList.add('card-selected');
             }
         }
 
@@ -237,15 +269,15 @@
         function renderFoods() {
             const container = document.getElementById('food-list');
             container.innerHTML = state.foods.map(food => `
-                <div class="flex items-center justify-between bg-white border p-4 rounded-xl">
+                <div class="flex items-center justify-between bg-white border p-4 rounded-xl shadow-sm">
                     <div>
-                        <p class="font-bold">${food.name}</p>
-                        <p class="text-sm text-green-600">${food.price} บาท</p>
+                        <p class="font-bold text-gray-800">${food.name}</p>
+                        <p class="text-sm text-green-600 font-bold">${food.price} บาท</p>
                     </div>
-                    <div class="flex items-center gap-3">
-                        <button onclick="changeFood(${food.id}, -1)" class="w-8 h-8 rounded-full bg-gray-100">-</button>
+                    <div class="flex items-center gap-3 bg-gray-50 p-1 rounded-full border">
+                        <button onclick="changeFood(${food.id}, -1)" class="w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center">-</button>
                         <span id="food-qty-${food.id}" class="font-bold w-4 text-center">0</span>
-                        <button onclick="changeFood(${food.id}, 1)" class="w-8 h-8 rounded-full bg-gray-100">+</button>
+                        <button onclick="changeFood(${food.id}, 1)" class="w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center">+</button>
                     </div>
                 </div>
             `).join('');
@@ -272,6 +304,39 @@
             window.scrollTo(0, 0);
         }
 
+        async function applyDiscount() {
+            const code = document.getElementById('discount-code').value.trim();
+            if (!code) return;
+
+            showLoading('กำลังตรวจสอบโค้ด...');
+            try {
+                const res = await fetch(API_URL, {
+                    method: 'POST',
+                    body: JSON.stringify({ action: 'checkDiscount', code: code })
+                });
+                const result = await res.json();
+                
+                const msgEl = document.getElementById('discount-msg');
+                msgEl.classList.remove('hidden');
+                
+                if (result.success) {
+                    state.discount = { code: code, type: result.type, value: result.value };
+                    msgEl.innerText = `ประยุกต์ใช้ส่วนลดแล้ว!`;
+                    msgEl.className = "text-xs mt-1 text-green-600 font-bold";
+                    calculateSummary();
+                } else {
+                    state.discount = { code: '', type: 'none', value: 0 };
+                    msgEl.innerText = result.message || 'โค้ดไม่ถูกต้อง';
+                    msgEl.className = "text-xs mt-1 text-red-600 font-bold";
+                    calculateSummary();
+                }
+            } catch (e) {
+                alert('เกิดข้อผิดพลาดในการตรวจสอบส่วนลด');
+            } finally {
+                hideLoading();
+            }
+        }
+
         function calculateSummary() {
             let roomTotal = 0;
             let foodTotal = 0;
@@ -292,12 +357,41 @@
                 }
             });
 
-            const depositPercent = 0.5; // ดึงจาก Settings จริงๆ ผ่าน API
-            const deposit = Math.ceil((roomTotal * depositPercent) + foodTotal);
+            // Calculate Discount
+            let discountAmount = 0;
+            if (state.discount.type === 'fixed') {
+                discountAmount = state.discount.value;
+            } else if (state.discount.type === 'percent') {
+                discountAmount = (roomTotal * state.discount.value) / 100;
+            }
+
+            const netRoomTotal = Math.max(0, roomTotal - discountAmount);
+            const depositPercent = 0.5; // ดึงจาก Settings จริงๆ
+            const deposit = Math.ceil((netRoomTotal * depositPercent) + foodTotal);
             
             document.getElementById('summary-content').innerHTML = html;
+            document.getElementById('summary-room-total').innerText = roomTotal.toLocaleString() + '.-';
+            document.getElementById('summary-food-total').innerText = foodTotal.toLocaleString() + '.-';
+            
+            const discRow = document.getElementById('discount-row');
+            if (discountAmount > 0) {
+                discRow.classList.remove('hidden');
+                document.getElementById('summary-discount').innerText = '-' + discountAmount.toLocaleString() + '.-';
+            } else {
+                discRow.classList.add('hidden');
+            }
+
             document.getElementById('summary-deposit').innerText = deposit.toLocaleString() + ' บาท';
             document.getElementById('qr-code').src = `https://promptpay.io/0615924262/${deposit}`;
+        }
+
+        function showLoading(text = 'กำลังดำเนินการ...') {
+            document.getElementById('loading-text').innerText = text;
+            document.getElementById('loading').classList.remove('hidden');
+        }
+
+        function hideLoading() {
+            document.getElementById('loading').classList.add('hidden');
         }
 
         async function submitBooking() {
@@ -310,35 +404,41 @@
                 return;
             }
 
-            document.getElementById('loading').classList.remove('hidden');
+            showLoading('กำลังบันทึกข้อมูลและอัปโหลดสลิป...');
 
             const reader = new FileReader();
             reader.onload = async (e) => {
                 const base64 = e.target.result.split(',')[1];
                 const payload = {
                     action: 'submitBooking',
-                    userId: state.user.userId,
-                    displayName: state.user.displayName,
+                    userId: state.user?.userId || 'guest',
+                    displayName: state.user?.displayName || 'Guest',
                     name, phone,
                     checkIn: state.checkIn.split('-').reverse().join('/'),
                     checkOut: state.checkOut.split('-').reverse().join('/'),
                     nights: state.nights,
-                    totalPrice: 0, // คำนวณฝั่ง Server
+                    totalPrice: 0, 
                     deposit: 0, 
                     slipBase64: base64,
                     slipType: slip.type,
+                    discountCode: state.discount.code,
                     rooms: state.selectedRooms.map(r => ({ name: r.name, pax: r.currentPax, price: r.isCampSite ? r.pricePerPerson : r.prices[r.currentPax] })),
                     foods: state.foods.filter(f => f.qty > 0).map(f => ({ name: f.name, qty: f.qty, price: f.price }))
                 };
 
-                const res = await fetch(API_URL, { method: 'POST', body: JSON.stringify(payload) });
-                const result = await res.json();
-
-                document.getElementById('loading').classList.add('hidden');
-                if (result.success) {
-                    liff.closeWindow();
-                } else {
-                    alert('เกิดข้อผิดพลาด: ' + result.message);
+                try {
+                    const res = await fetch(API_URL, { method: 'POST', body: JSON.stringify(payload) });
+                    const result = await res.json();
+                    if (result.success) {
+                        alert('จองสำเร็จ! กรุณารอแอดมินตรวจสอบการโอนเงิน');
+                        liff.closeWindow();
+                    } else {
+                        alert('เกิดข้อผิดพลาด: ' + result.message);
+                    }
+                } catch (err) {
+                    alert('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
+                } finally {
+                    hideLoading();
                 }
             };
             reader.readAsDataURL(slip);
